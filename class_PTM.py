@@ -7,50 +7,24 @@ import simple_exact_diagonalization_routines as spd
 import pandas as pd
 
 class pauli_transfer_matrix():
-    def __init__(self, ntls):
-        self.ntls = ntls
+    def __init__(self, D:list):
+        self.D = D
+        self.ntls = len(self.D[0][1])
         self.pauli_index = [0,1,2,3]
         self.pauli_index_ls = [self.pauli_index] * self.ntls
         self.u_perm = list(product(*self.pauli_index_ls))
         self.pauli_ls = [qeye(2), sigmax(), sigmay(), sigmaz()]
         self.identity = tensor([qeye(2) for i in range(self.ntls)])
         self.please_be_verbose = False
-        self.beta = None
+        self.please_be_exhaustively_verbose = False
+        self.perm_pairs = self.get_perm_pairs()
+        gamma_comp = self.gamma_distribution(self.D)
+        self.beta = gamma_comp['beta']
+        self.gamma_uw_dict = gamma_comp['gamma_uw_dict']
+        self.prob_uw = gamma_comp['prob_uw_dict']
+        
         # TODO use simple_diagonalization or not? For now use_qutip = True
-    
-    def perm_vec(self):
-        # n^4 possible vectors in {0,1,2,3}^n
-        return list(product(*self.pauli_index_ls))
-    
-    def pauli_gen(self, index):
-        # Returns qutip operator with index
-        return tensor([self.pauli_ls[index[i]] for i in range(len(index))])
-    
-    def pauli_qutip_ops(self):
-        # Returns dictinary of qutip operators, call by pauli_qutip_ops[(index)]
-        return {index: self.pauli_gen(index) for index in self.u_perm}
-    
-    # Pauli product based on indexes
-    def pauli_commute(self, u, w):
-        # u, w: tuples, e.g. (0,1,2,2,3) for n=5
-        # Determine 0 or 2
-        sgn = 1
-        for i in range(len(u)):
-            sgn *= (-1) ** self.delta(u[i], w[i])
-        if sgn == (-1) ** self.ntls:
-            return (0, 0)
-        else:
-            (fact, op) = self.pauli_prod(u, w)
-            return (2 * fact, op)
-    
-    def f(self, u, D):
-        f_ls = []
-        for D_loc in D:
-            (df, d) = D_loc
-            (fact, v) = self.pauli_commute(u,d)
-            f_ls.append((df*fact, v))
-        return f_ls
-    
+
     @staticmethod
     def f_wu(v, u ,w):
         if v == u:
@@ -85,6 +59,41 @@ class pauli_transfer_matrix():
         else:
             return results[(p1,p2)]
 
+    def perm_vec(self):
+        # n^4 possible vectors in {0,1,2,3}^n
+        return list(product(*self.pauli_index_ls))
+    
+    def pauli_gen(self, index):
+        # Returns qutip operator with index
+        return tensor([self.pauli_ls[index[i]] for i in range(len(index))])
+    
+    def pauli_qutip_ops(self):
+        # Returns dictinary of qutip operators, call by pauli_qutip_ops[(index)]
+        return {index: self.pauli_gen(index) for index in self.u_perm}
+    
+    # Pauli product based on indexes
+    def pauli_commute(self, u, w):
+        # u, w: tuples, e.g. (0,1,2,2,3) for n=5
+        # Determine 0 or 2
+        sgn = 1
+        for i in range(len(u)):
+            sgn *= (-1) ** self.delta(u[i], w[i])
+        if sgn == (-1) ** self.ntls:
+            return (0, 0)
+        else:
+            (fact, op) = self.pauli_prod(u, w)
+            return (2 * fact, op)
+    
+    def f(self, u, D=None):
+        f_ls = []
+        if D == None:
+            D = self.D
+        for D_loc in D:
+            (df, d) = D_loc
+            (fact, v) = self.pauli_commute(u,d)
+            f_ls.append((df*fact, v))
+        return f_ls
+    
     def pauli_prod(self, u, w):
         new = np.zeros(len(u))
         fact_new = 1
@@ -94,10 +103,15 @@ class pauli_transfer_matrix():
             new[i] = res
         return (fact_new, tuple(new.astype(int)))
     
-    def gamma_u_w(self, u, D, w):
+    def gamma_u_w(self, u, w, D=None):
         # D = [(df, d)], df constant factor, d pauli vector (tuple)
         # [u,d]=v return 0/2 if w=v, else 0
         # d be an index for a Pauli matrix in diagonal D
+        if D == None:
+            D = self.D
+        
+        if self.please_be_exhaustively_verbose:
+            print('Received D in gamma_uw',D)
         for D_loc in D:
             (df, d) = D_loc
             (fact, v) = self.pauli_commute(u,d)
@@ -109,46 +123,73 @@ class pauli_transfer_matrix():
                 return df * fact
         return 0
     
-    def gamma_distibution(self, D):
-        # Returns:
-        #   1. [(u,w)] all pairs of u and w
-        #   2. {(u,w): gamma} dictionary
+    def get_perm_pairs(self):
         pair_index_ls = [self.u_perm] * 2
         # For ntls = 2, len(pair_perm)=16^ntls=256
         perm_pair_uw = list(product(*pair_index_ls))
-        gamma = [self.gamma_u_w(pair_uw[0], D, pair_uw[1])
-                 for pair_uw in perm_pair_uw]
-        self.beta = 2*np.sum(np.abs(gamma))
-        gamma = 2 * gamma/self.beta
-        if self.please_be_verbose:
-            print('Beta', self.beta)
-        # ERROR: unhashable list
-        # gamma_dict = dict(zip(pair_index_ls, gamma))
-        gamma_dict = {k: v for k,v in zip(perm_pair_uw, gamma)}
-        return perm_pair_uw, gamma_dict
+        return perm_pair_uw
     
-    def show_gamma_distribution(self, gamma_uw, show_zeros=False):
-        gamma_uw_df = pd.DataFrame([(k,val) for k,val in gamma_uw.items()], columns=['Index','Gamma'])
+    def gamma_distribution(self, D=None, show_df=False, show_zeros=False):
+        if D == None:
+            D = self.D
+        if self.please_be_exhaustively_verbose:
+            print('Received D in gamma_distribution',D)
+        perm_pair_uw = self.perm_pairs
+        gamma = [self.gamma_u_w(pair_uw[0], pair_uw[1], D)
+                 for pair_uw in perm_pair_uw]
+        gamma_uw = {k: v for k,v in zip(perm_pair_uw, gamma)}
+        beta = 2*np.sum(np.abs(gamma))
+        prob_uw_dict = {k: v for k,v in zip(perm_pair_uw, 2*np.abs(gamma)/beta)}
+        if show_df:
+            self.show_prob_uw_distribution(prob_uw_dict, show_zeros=show_zeros)
+        return {'beta':beta, 'gamma_uw_dict': gamma_uw, 'prob_uw_dict': prob_uw_dict}
+    
+    def show_prob_uw_distribution(self, prob_uw=None, show_zeros=False):
+        if prob_uw == None:
+            prob_uw = self.prob_uw
+        gamma_uw_df = pd.DataFrame([(k,val) for k,val in prob_uw.items()], columns=['Index','Gamma'])
         df_sort = gamma_uw_df.sort_values('Gamma')
         if show_zeros:
-            display(df_sort)
+            display(gamma_uw_df)
         else:
             display(df_sort[df_sort['Gamma']!=0j])
         
-    def sample_uw(self, D, multi_sample=False):
-        (perm_pair_uw, gamma_dict) = self.gamma_distibution(D)
+    def sample_uw(self, D=None, multi_sample=False):
+        if D == None:
+            gamma_cal = self.gamma_distribution(D)
+            perm_pair_uw = self.perm_pairs
+            prob_uw = gamma_cal['prob_uw_dict']
+        else:
+            perm_pair_uw = self.perm_pairs
+            prob_uw = self.prob_uw
         if multi_sample:
-            samples = np.random.choice(len(perm_pair_uw),500000, p=np.abs(list(gamma_dict.values())))
+            n_samples = 500000
+            samples = np.random.choice(len(perm_pair_uw),n_samples, p=np.abs(list(prob_uw.values())))
             sample_stat = np.unique(samples, return_counts=True)
             unique_ind = list(sample_stat[0].astype(int))
             ind_occur = sample_stat[1]
-            plt.bar(unique_ind, ind_occur)
+            x_labels = [f'{perm_pair_uw[i]}' for i in unique_ind]
+            freq = list(ind_occur/n_samples)
+            y_ax = pd.Series(freq)
+            plt.figure(figsize=(14,8))
+            fig = y_ax.plot(kind='bar')
+            fig.set_title(f'Sample frequencies out of {n_samples}')
+            fig.set_ylabel('Frequency')
+            fig.set_xlabel('Pair index')
+            fig.set_xticklabels(unique_ind)
+            rects = fig.patches
+            for rect, label in zip(rects, x_labels):
+                height = rect.get_height()
+                fig.text(
+                    rect.get_x() + rect.get_width() / 2, height , label, ha="center", va="bottom"
+                )
             plt.show()
-            all_possible_uw = [(perm_pair_uw[i], gamma_dict[perm_pair_uw[i]]) for i in unique_ind]
+            plt.show()
+            all_possible_uw = [(perm_pair_uw[i], prob_uw[perm_pair_uw[i]]) for i in unique_ind]
             return all_possible_uw
         else:
-            sample = np.random.choice(len(perm_pair_uw), p=np.abs(list(gamma_dict.values())))
-            return (perm_pair_uw[sample], gamma_dict[perm_pair_uw[sample]])
+            sample = np.random.choice(len(perm_pair_uw), p=np.abs(list(prob_uw.values())))
+            return (perm_pair_uw[sample], prob_uw[perm_pair_uw[sample]])
 
     def sample_vv(self):
         (v, vp) = (self.u_perm[random.randint(0,len(self.u_perm)-1)], 
