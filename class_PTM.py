@@ -156,12 +156,14 @@ class pauli_transfer_matrix():
         
     def sample_uw(self, D=None, multi_sample=False):
         if D == None:
-            gamma_cal = self.gamma_distribution(D)
-            perm_pair_uw = self.perm_pairs
-            prob_uw = gamma_cal['prob_uw_dict']
-        else:
             perm_pair_uw = self.perm_pairs
             prob_uw = self.prob_uw
+            gamma_uw = self.gamma_uw_dict
+        else:
+            gamma_cal = self.gamma_distribution(D)
+            perm_pair_uw = self.perm_pairs
+            gamma_uw = gamma_cal['gamma_uw_dict']
+            prob_uw = gamma_cal['prob_uw_dict']
         if multi_sample:
             n_samples = 500000
             samples = np.random.choice(len(perm_pair_uw),n_samples, p=np.abs(list(prob_uw.values())))
@@ -189,7 +191,7 @@ class pauli_transfer_matrix():
             return all_possible_uw
         else:
             sample = np.random.choice(len(perm_pair_uw), p=np.abs(list(prob_uw.values())))
-            return (perm_pair_uw[sample], prob_uw[perm_pair_uw[sample]])
+            return (perm_pair_uw[sample][0], perm_pair_uw[sample][1], gamma_uw[perm_pair_uw[sample]])
 
     def sample_vv(self):
         (v, vp) = (self.u_perm[random.randint(0,len(self.u_perm)-1)], 
@@ -201,13 +203,15 @@ class pauli_transfer_matrix():
             ntls = self.ntls
         # |0><0|I + |1><1|U
         return tensor(ket("0")*bra("0"),self.identity) + tensor(ket("1")*bra("1"),U)
-        
-    
-    def V_fj(self, v, vp, u, w, gamma_uw):
+         
+    def V_fj(self, sample_vv, sample_uw):
+        (v, vp) = sample_vv
+        (u, w, gamma_uw) = sample_uw
         hadamard_c = tensor(hadamard_transform(1), self.identity)
-        sf = int((1 - np.sign(gamma_uw))/2)
-        print(sf)
-        print(self.pauli_gen(v))
+        sf = int((1 - np.real(np.sign(gamma_uw)))/2)
+        if self.please_be_verbose:
+            print(f'V_fj using (v, vp) = ({v},{vp}), (u, w) = ({u},{w}), gamma_uw = {gamma_uw}')
+            print(f'Sign sf = {sf}')
         op = self.controlled_U(self.pauli_gen(v))* hadamard_c * self.controlled_U(self.pauli_gen(u))\
                 * tensor(qeye(2),self.pauli_gen(vp)) * self.controlled_U(self.pauli_gen(w))\
                 * hadamard_c * tensor(sigmax()**sf, self.identity)
