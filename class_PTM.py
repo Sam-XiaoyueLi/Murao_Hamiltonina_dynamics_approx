@@ -7,26 +7,14 @@ import simple_exact_diagonalization_routines as spd
 import pandas as pd
 
 class pauli_transfer_matrix():
-    def __init__(self, D:list):
-        self.D = D
-        if type(D[0][1]) == int:
-            self.ntls = 1
-        else:
-            self.ntls = len(self.D[0][1])
+    def __init__(self, ntls):
+        self.ntls = ntls
         self.pauli_index = [0,1,2,3]
         self.pauli_index_ls = [self.pauli_index] * self.ntls
         self.u_perm = list(product(*self.pauli_index_ls))
         self.pauli_ls = [qeye(2), sigmax(), sigmay(), sigmaz()]
         self.identity = tensor([qeye(2) for i in range(self.ntls)])
-        self.please_be_verbose = False
-        self.please_be_exhaustively_verbose = False
         self.perm_pairs = self.get_perm_pairs()
-        gamma_comp = self.gamma_distribution(self.D)
-        self.beta = gamma_comp['beta']
-        self.gamma_uw_dict = gamma_comp['gamma_uw_dict']
-        self.prob_uw = gamma_comp['prob_uw_dict']
-        
-        # TODO use simple_diagonalization or not? For now use_qutip = True
 
     @staticmethod
     def delta(a, b):
@@ -55,6 +43,12 @@ class pauli_transfer_matrix():
         else:
             return results[(p1,p2)]
 
+    def get_perm_pairs(self):
+        pair_index_ls = [self.u_perm] * 2
+        # For ntls = 2, len(pair_perm)=16^ntls=256
+        perm_pair_uw = list(product(*pair_index_ls))
+        return perm_pair_uw
+    
     def perm_vec(self):
         # n^4 possible vectors in {0,1,2,3}^n
         return list(product(*self.pauli_index_ls))
@@ -66,8 +60,7 @@ class pauli_transfer_matrix():
     def pauli_qutip_ops(self):
         # Returns dictinary of qutip operators, call by pauli_qutip_ops[(index)]
         return {index: self.pauli_gen(index) for index in self.u_perm}
-    
-    # Pauli product based on indexes
+
     def pauli_commute(self, u, w):
         # u, w: tuples, e.g. (0,1,2,2,3) for n=5
         # Determine 0 or 2
@@ -80,6 +73,15 @@ class pauli_transfer_matrix():
             (fact, op) = self.pauli_prod(u, w)
             return (2 * fact, op)
     
+    def pauli_prod(self, u, w):
+        new = np.zeros(len(u))
+        fact_new = 1
+        for i in range(len(u)):
+            (fact, res) = self.pauli_prod_single(u[i], w[i])
+            fact_new *= fact
+            new[i] = res
+        return (fact_new, tuple(new.astype(int)))  
+    # Unused
     def f(self, u, D=None):
         f_ls = []
         if D == None:
@@ -89,25 +91,57 @@ class pauli_transfer_matrix():
             (fact, v) = self.pauli_commute(u,d)
             f_ls.append((df*fact, v))
         return f_ls
+        circuit_op = tensor(qeye(2), self.identity)
+        for i in range(N):
+            V_fj = self.V_fj(self.sample_vv(), self.sample_uw())
+            circuit_op *= V_fj * np.exp(-1j* H * self.beta / N) * V_fj.dag()
+        return circuit_op
+        
+class commutator_type_dynamics(pauli_transfer_matrix):
+    def __init__(self, D):
+        self.D = D
+        self.ntls = len(self.D[0][1])
+        super().__init__(self.ntls)
+        self.please_be_verbose = False
+        self.please_be_exhaustively_verbose = False
+        self.J = None
+        self.local_restriction = False
+        
+        self.beta = None
+        self.gamma_uw_dict = None
+        self.prob_uw = None
     
-    def pauli_prod(self, u, w):
-        new = np.zeros(len(u))
-        fact_new = 1
-        for i in range(len(u)):
-            (fact, res) = self.pauli_prod_single(u[i], w[i])
-            fact_new *= fact
-            new[i] = res
-        return (fact_new, tuple(new.astype(int)))
+    # Here comments dictate whether function is universal for murao
+    # routine or specific to the commutator type. For future changes
+    # Such as option in Murao class given any function f()
     
-    def gamma_u_w(self, u, w, D=None):
+    def run_PTM(self, D=None):
+        if D == None:
+            D = self.D
+        gamma_comp = self.gamma_distribution(self.D)
+        self.beta = gamma_comp['beta']
+        self.gamma_uw_dict = gamma_comp['gamma_uw_dict']
+        self.prob_uw = gamma_comp['prob_uw_dict']
+        return {'beta': self.beta, 'gamma_uw_dict': self.gamma_uw_dict, 'prob_uw': self.prob_uw}
+    
+    # commute
+    def gamma_u_w(self, u, w, D=None, J=None, local_restriction=False):
         # D = [(df, d)], df constant factor, d pauli vector (tuple)
         # [u,d]=v return 0/2 if w=v, else 0
         # d be an index for a Pauli matrix in diagonal D
         if D == None:
             D = self.D
-        
+        if J == None:
+            J = self.J
+        if local_restriction == None:
+            local_restriction = self.local_restriction
+            
         if self.please_be_exhaustively_verbose:
             print('Received D in gamma_uw',D)
+            
+        if local_restriction == True and J != None and u not in J:
+            return 0
+        
         for D_loc in D:
             (df, d) = D_loc
             (fact, v) = self.pauli_commute(u,d)
@@ -118,13 +152,7 @@ class pauli_transfer_matrix():
             else:
                 return df * fact
         return 0
-    
-    def get_perm_pairs(self):
-        pair_index_ls = [self.u_perm] * 2
-        # For ntls = 2, len(pair_perm)=16^ntls=256
-        perm_pair_uw = list(product(*pair_index_ls))
-        return perm_pair_uw
-    
+    # commute
     def gamma_distribution(self, D=None, show_df=False, show_zeros=False):
         if D == None:
             D = self.D
@@ -139,7 +167,7 @@ class pauli_transfer_matrix():
         if show_df:
             self.show_prob_uw_distribution(prob_uw_dict, show_zeros=show_zeros)
         return {'beta':beta, 'gamma_uw_dict': gamma_uw, 'prob_uw_dict': prob_uw_dict}
-    
+    # murao
     def show_prob_uw_distribution(self, prob_uw=None, show_zeros=False):
         if prob_uw == None:
             prob_uw = self.prob_uw
@@ -149,7 +177,7 @@ class pauli_transfer_matrix():
             display(gamma_uw_df)
         else:
             display(df_sort[df_sort['Gamma']!=0j])
-        
+    # commute
     def sample_uw(self, D=None, multi_sample=False):
         if D == None:
             perm_pair_uw = self.perm_pairs
@@ -188,18 +216,18 @@ class pauli_transfer_matrix():
         else:
             sample = np.random.choice(len(perm_pair_uw), p=np.abs(list(prob_uw.values())))
             return (perm_pair_uw[sample][0], perm_pair_uw[sample][1], gamma_uw[perm_pair_uw[sample]])
-
+    # murao
     def sample_vv(self):
         (v, vp) = (self.u_perm[random.randint(0,len(self.u_perm)-1)], 
            self.u_perm[random.randint(0,len(self.u_perm)-1)])
         return (v, vp)
-    
+    # murao
     def controlled_U(self, U, ntls=None):
         if ntls == None:
             ntls = self.ntls
         # |0><0|I + |1><1|U
         return tensor(ket("0")*bra("0"),self.identity) + tensor(ket("1")*bra("1"),U)
-         
+    # murao    
     def V_fj(self, sample_vv, sample_uw):
         (v, vp) = sample_vv
         (u, w, gamma_uw) = sample_uw
@@ -211,10 +239,12 @@ class pauli_transfer_matrix():
         op = tensor(sigmax()**sf, self.identity) * hadamard_c * self.controlled_U(self.pauli_gen(w))\
              * tensor(qeye(2),self.pauli_gen(vp)) * self.controlled_U(self.pauli_gen(u))\
              * hadamard_c * self.controlled_U(self.pauli_gen(v))
-             
         return op
-
-class commutator_dynamics(pauli_transfer_matrix):
-    def __init__(D):
-        super().__init__()
+    # murao
+    def complete_circuit(self, N, H):
+        circuit_op = tensor(qeye(2), self.identity)
+        for i in range(N):
+            V_fj = self.V_fj(self.sample_vv(), self.sample_uw())
+            circuit_op *= V_fj * np.exp(-1j* H * self.beta / N) * V_fj.dag()
+        return circuit_op
         
