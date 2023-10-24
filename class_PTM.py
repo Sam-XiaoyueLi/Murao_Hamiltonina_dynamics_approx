@@ -121,10 +121,42 @@ class commutator_type_dynamics(pauli_transfer_matrix):
             return [a for a in A if a != 0]
         if type(A) == np.ndarray:
             return A[A != 0]
+        
+    @staticmethod
+    def extract_target_op(H):
+        """
+        Extract the operator acting on the second subsystem
+        when the operator for the first subsystem is known to be identity.
+        Method: take the upper left submatrix
+        Parameters:
+        - H: Composite operator (like a Hamiltonian).
+        
+        Returns:
+        - Operator acting on the second subsystem.
+        """
+        num_subsystems = np.log2(H.shape[0]).astype(int)
+        tensor_dims = [2] * (2 * num_subsystems)
+        # Reshape into appropriate tensor
+        tensor_data = H.full().reshape(*tensor_dims)
+        
+        # Indexing the tensor to get the desired block
+        slices = [0] + [slice(None)] * (num_subsystems - 1) + [0] + [slice(None)] * (num_subsystems - 1)
+        O_data = tensor_data[tuple(slices)]
+        
+        # Reshape back to get the matrix operator
+        O_data = O_data.reshape(2**(num_subsystems - 1), 2**(num_subsystems - 1))
+
+        return Qobj(O_data, dims=[[2] * (num_subsystems - 1), [2] * (num_subsystems - 1)])
+    
+    @staticmethod
+    def error_norm(H_exact, H_approx):
+        return np.linalg.norm(H_exact.full() - H_approx.full(), 'fro')
+    
     # Here comments dictate whether function is universal for murao
     # routine or specific to the commutator type. For future changes
     # Such as option in Murao class given any function f()
     
+    # commute
     def run_PTM(self, D=None):
         if D == None:
             D = self.D
@@ -132,7 +164,7 @@ class commutator_type_dynamics(pauli_transfer_matrix):
         self.beta = gamma_comp['beta']
         self.gamma_uw_dict = gamma_comp['gamma_uw_dict']
         self.prob_uw = gamma_comp['prob_uw_dict']
-        return {'beta': self.beta, 'gamma_uw_dict': self.gamma_uw_dict, 'prob_uw': self.prob_uw}
+        # return {'beta': self.beta, 'gamma_uw_dict': self.gamma_uw_dict, 'prob_uw': self.prob_uw}
     
     # commute
     def gamma_u_w(self, u, w, D=None, J=None):
@@ -254,10 +286,10 @@ class commutator_type_dynamics(pauli_transfer_matrix):
     def complete_circuit(self, H, t, allowed_error):
         # N = 1
         N = math.ceil(max(5 * self.beta**2 * t**2/ allowed_error, 2.5 * self.beta * t))
-        print('N =', N)
+        if self.please_be_verbose:
+            print('Running circuit with N =', N)
         circuit_op = tensor(qeye(2), self.identity)
         for i in range(N):
             V_fj = self.V_fj(self.sample_vv(), self.sample_uw())
-            circuit_op = circuit_op * V_fj * tensor(qeye(2), (-1j* H * self.beta / N).expm()) * V_fj.dag()
+            circuit_op = circuit_op * V_fj * tensor(qeye(2), (-1j* H * self.beta * t / N).expm()) * V_fj.dag()
         return circuit_op
-        
