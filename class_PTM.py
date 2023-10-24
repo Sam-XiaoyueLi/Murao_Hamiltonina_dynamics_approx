@@ -5,6 +5,8 @@ import random
 import matplotlib.pyplot as plt
 import simple_exact_diagonalization_routines as spd
 import pandas as pd
+import math
+from scipy.linalg import expm
 
 class pauli_transfer_matrix():
     def __init__(self, ntls):
@@ -104,13 +106,21 @@ class commutator_type_dynamics(pauli_transfer_matrix):
         super().__init__(self.ntls)
         self.please_be_verbose = False
         self.please_be_exhaustively_verbose = False
-        self.J = None
+        self.J = []
         self.local_restriction = False
         
         self.beta = None
         self.gamma_uw_dict = None
         self.prob_uw = None
-    
+        
+    @staticmethod
+    def filter_out_zeros(A):
+        if type(A) == dict:
+            return {k: v for k, v in A.items() if v != 0}
+        if type(A) == list:
+            return [a for a in A if a != 0]
+        if type(A) == np.ndarray:
+            return A[A != 0]
     # Here comments dictate whether function is universal for murao
     # routine or specific to the commutator type. For future changes
     # Such as option in Murao class given any function f()
@@ -125,7 +135,7 @@ class commutator_type_dynamics(pauli_transfer_matrix):
         return {'beta': self.beta, 'gamma_uw_dict': self.gamma_uw_dict, 'prob_uw': self.prob_uw}
     
     # commute
-    def gamma_u_w(self, u, w, D=None, J=None, local_restriction=False):
+    def gamma_u_w(self, u, w, D=None, J=None):
         # D = [(df, d)], df constant factor, d pauli vector (tuple)
         # [u,d]=v return 0/2 if w=v, else 0
         # d be an index for a Pauli matrix in diagonal D
@@ -133,13 +143,13 @@ class commutator_type_dynamics(pauli_transfer_matrix):
             D = self.D
         if J == None:
             J = self.J
-        if local_restriction == None:
-            local_restriction = self.local_restriction
             
         if self.please_be_exhaustively_verbose:
             print('Received D in gamma_uw',D)
             
-        if local_restriction == True and J != None and u not in J:
+        if self.local_restriction == True and len(J)!=False and u not in J:
+            if self.please_be_exhaustively_verbose:
+                print(f'restricted u{u}, w{w}')
             return 0
         
         for D_loc in D:
@@ -171,7 +181,7 @@ class commutator_type_dynamics(pauli_transfer_matrix):
     def show_prob_uw_distribution(self, prob_uw=None, show_zeros=False):
         if prob_uw == None:
             prob_uw = self.prob_uw
-        gamma_uw_df = pd.DataFrame([(k,val) for k,val in prob_uw.items()], columns=['Index','Gamma'])
+        gamma_uw_df = pd.DataFrame([(k,val) for k,val in prob_uw.items()], columns=['Index (u,w)','Gamma'])
         df_sort = gamma_uw_df.sort_values('Gamma')
         if show_zeros:
             display(gamma_uw_df)
@@ -241,10 +251,13 @@ class commutator_type_dynamics(pauli_transfer_matrix):
              * hadamard_c * self.controlled_U(self.pauli_gen(v))
         return op
     # murao
-    def complete_circuit(self, N, H):
+    def complete_circuit(self, H, t, allowed_error):
+        # N = 1
+        N = math.ceil(max(5 * self.beta**2 * t**2/ allowed_error, 2.5 * self.beta * t))
+        print('N =', N)
         circuit_op = tensor(qeye(2), self.identity)
         for i in range(N):
             V_fj = self.V_fj(self.sample_vv(), self.sample_uw())
-            circuit_op *= V_fj * np.exp(-1j* H * self.beta / N) * V_fj.dag()
+            circuit_op = circuit_op * V_fj * tensor(qeye(2), (-1j* H * self.beta / N).expm()) * V_fj.dag()
         return circuit_op
         
