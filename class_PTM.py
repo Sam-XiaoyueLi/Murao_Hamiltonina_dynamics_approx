@@ -9,7 +9,10 @@ import pandas as pd
 class pauli_transfer_matrix():
     def __init__(self, D:list):
         self.D = D
-        self.ntls = len(self.D[0][1])
+        if type(D[0][1]) == int:
+            self.ntls = 1
+        else:
+            self.ntls = len(self.D[0][1])
         self.pauli_index = [0,1,2,3]
         self.pauli_index_ls = [self.pauli_index] * self.ntls
         self.u_perm = list(product(*self.pauli_index_ls))
@@ -25,13 +28,6 @@ class pauli_transfer_matrix():
         
         # TODO use simple_diagonalization or not? For now use_qutip = True
 
-    @staticmethod
-    def f_wu(v, u ,w):
-        if v == u:
-            return w
-        else:
-            return 0
-        
     @staticmethod
     def delta(a, b):
         if a == b or a == 0 or b == 0:
@@ -212,7 +208,13 @@ class pauli_transfer_matrix():
         if self.please_be_verbose:
             print(f'V_fj using (v, vp) = ({v},{vp}), (u, w) = ({u},{w}), gamma_uw = {gamma_uw}')
             print(f'Sign sf = {sf}')
-        op = self.controlled_U(self.pauli_gen(v))* hadamard_c * self.controlled_U(self.pauli_gen(u))\
-                * tensor(qeye(2),self.pauli_gen(vp)) * self.controlled_U(self.pauli_gen(w))\
-                * hadamard_c * tensor(sigmax()**sf, self.identity)
+        op = tensor(sigmax()**sf, self.identity) * hadamard_c * self.controlled_U(self.pauli_gen(w))\
+             * tensor(qeye(2),self.pauli_gen(vp)) * self.controlled_U(self.pauli_gen(u))\
+             * hadamard_c * self.controlled_U(self.pauli_gen(v))
+             
         return op
+
+class commutator_dynamics(pauli_transfer_matrix):
+    def __init__(D):
+        super().__init__()
+        
