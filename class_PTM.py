@@ -93,11 +93,7 @@ class pauli_transfer_matrix():
             (fact, v) = self.pauli_commute(u,d)
             f_ls.append((df*fact, v))
         return f_ls
-        circuit_op = tensor(qeye(2), self.identity)
-        for i in range(N):
-            V_fj = self.V_fj(self.sample_vv(), self.sample_uw())
-            circuit_op *= V_fj * np.exp(-1j* H * self.beta / N) * V_fj.dag()
-        return circuit_op
+
         
 class commutator_type_dynamics(pauli_transfer_matrix):
     def __init__(self, D):
@@ -121,36 +117,49 @@ class commutator_type_dynamics(pauli_transfer_matrix):
             return [a for a in A if a != 0]
         if type(A) == np.ndarray:
             return A[A != 0]
-        
-    @staticmethod
-    def extract_target_op(H):
-        """
-        Extract the operator acting on the second subsystem
-        when the operator for the first subsystem is known to be identity.
-        Method: take the upper left submatrix
-        Parameters:
-        - H: Composite operator (like a Hamiltonian).
-        
-        Returns:
-        - Operator acting on the second subsystem.
-        """
-        num_subsystems = np.log2(H.shape[0]).astype(int)
-        tensor_dims = [2] * (2 * num_subsystems)
-        # Reshape into appropriate tensor
-        tensor_data = H.full().reshape(*tensor_dims)
-        
-        # Indexing the tensor to get the desired block
-        slices = [0] + [slice(None)] * (num_subsystems - 1) + [0] + [slice(None)] * (num_subsystems - 1)
-        O_data = tensor_data[tuple(slices)]
-        
-        # Reshape back to get the matrix operator
-        O_data = O_data.reshape(2**(num_subsystems - 1), 2**(num_subsystems - 1))
 
-        return Qobj(O_data, dims=[[2] * (num_subsystems - 1), [2] * (num_subsystems - 1)])
-    
+    def extract_target_op(self, U_approx, H):
+        # """
+        # Extract the operator acting on the second subsystem
+        # when the operator for the first subsystem is known to be identity.
+        # Method: take the upper left submatrix
+        # Parameters:
+        # - H: Composite operator (like a Hamiltonian).
+        
+        # Returns:
+        # - Operator acting on the second subsystem.
+        # """
+        # num_subsystems = np.log2(H.shape[0]).astype(int)
+        # tensor_dims = [2] * (2 * num_subsystems)
+        # # Reshape into appropriate tensor
+        # tensor_data = H.full().reshape(*tensor_dims)
+        
+        # # Indexing the tensor to get the desired block
+        # slices = [0] + [slice(None)] * (num_subsystems - 1) + [0] + [slice(None)] * (num_subsystems - 1)
+        # O_data = tensor_data[tuple(slices)]
+        
+        # # Reshape back to get the matrix operator
+        # O_data = O_data.reshape(2**(num_subsystems - 1), 2**(num_subsystems - 1))
+
+        # return Qobj(O_data, dims=[[2] * (num_subsystems - 1), [2] * (num_subsystems - 1)])
+        # ket_0 = basis(2,0)
+        # bra_extract = tensor(ket_0.dag(), self.identity)
+        # ket_extract = tensor(ket_0, self.identity)
+        # return bra_extract * H * ket_extract
+        return (U_approx * tensor(basis(2,0)*basis(2,0).dag(), H) * U_approx).ptrace([1,2])
     @staticmethod
     def error_norm(H_exact, H_approx):
-        return np.linalg.norm(H_exact.full() - H_approx.full(), 'fro')
+        # Murao
+        return (H_exact - H_approx).norm()
+    
+    @staticmethod
+    def normalize_hamiltonian(H):
+        eigenvalues = H.eigenenergies()
+        # Find the maximum eigenvalue in magnitude
+        max_eigenvalue = max(abs(eigenvalues))
+        # Normalize the Hamiltonian
+        normalized_H = H / max_eigenvalue
+        return normalized_H
     
     # Here comments dictate whether function is universal for murao
     # routine or specific to the commutator type. For future changes
@@ -192,7 +201,8 @@ class commutator_type_dynamics(pauli_transfer_matrix):
             if v != w:
                 continue
             else:
-                return df * fact
+                # f has to be hermitin preserving
+                return 1j * df * fact
         return 0
     # commute
     def gamma_distribution(self, D=None, show_df=False, show_zeros=False):
