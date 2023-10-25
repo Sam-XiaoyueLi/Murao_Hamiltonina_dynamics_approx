@@ -146,11 +146,10 @@ class commutator_type_dynamics(pauli_transfer_matrix):
         # bra_extract = tensor(ket_0.dag(), self.identity)
         # ket_extract = tensor(ket_0, self.identity)
         # return bra_extract * H * ket_extract
-        return (U_approx * tensor(basis(2,0)*basis(2,0).dag(), H) * U_approx).ptrace([1,2])
+        return (U_approx * tensor(basis(2,0)*basis(2,0).dag(), H) * U_approx.dag()).ptrace([1,2])
     @staticmethod
-    def error_norm(H_exact, H_approx):
-        # Murao
-        return (H_exact - H_approx).norm()
+    def error_norm(H, V_exact, V_approx):
+        return 
     
     @staticmethod
     def normalize_hamiltonian(H):
