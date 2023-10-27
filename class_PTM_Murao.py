@@ -83,16 +83,6 @@ class pauli_transfer_matrix():
             fact_new *= fact
             new[i] = res
         return (fact_new, tuple(new.astype(int)))  
-    # Unused
-    def f(self, u, D=None):
-        f_ls = []
-        if D == None:
-            D = self.D
-        for D_loc in D:
-            (df, d) = D_loc
-            (fact, v) = self.pauli_commute(u,d)
-            f_ls.append((df*fact, v))
-        return f_ls
 
         
 class commutator_type_dynamics(pauli_transfer_matrix):
@@ -262,8 +252,7 @@ class commutator_type_dynamics(pauli_transfer_matrix):
     def complete_circuit(self, H, t, allowed_error):
         # N = 1
         N = math.ceil(max(5 * self.beta**2 * t**2/ allowed_error, 2.5 * self.beta * t))
-        if self.please_be_verbose:
-            print('Running circuit with N =', N)
+        print('Running circuit with N =', N)
         circuit_op = tensor(qeye(2), self.identity)
         for i in range(N):
             V_fj = self.V_fj(self.sample_vv(), self.sample_uw())
@@ -299,4 +288,18 @@ class commutator_type_dynamics(pauli_transfer_matrix):
             choi = tensor(self.identity, phi_plus*phi_plus.dag()) * tensor(channel, self.identity)
         # TODO error> invalid option
         return choi
-        
+    
+    def locality_restraint(self, max_loc):
+        """ Returns a list of allowed pauli inputs with restrained locality.
+        I.e. The number of interacting qubits in a pauli component must not exceed max_loc
+        E.g. for (1,0,0,1,2,3) to be allowed, 2 (nmb of 0) > ntls - max_loc
+
+        Args:
+            max_loc (int): the maximum number of interacting qubits in a pauli operator
+        """
+        u_all = self.u_perm
+        u_restrained = []
+        for u in u_all:
+            if u.count(0)>(self.ntls - max_loc - 1):
+                u_restrained.append(u)
+        return u_restrained
