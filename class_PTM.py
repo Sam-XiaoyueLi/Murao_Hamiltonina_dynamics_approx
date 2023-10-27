@@ -118,39 +118,6 @@ class commutator_type_dynamics(pauli_transfer_matrix):
         if type(A) == np.ndarray:
             return A[A != 0]
 
-    def extract_target_op(self, U_approx, H):
-        # """
-        # Extract the operator acting on the second subsystem
-        # when the operator for the first subsystem is known to be identity.
-        # Method: take the upper left submatrix
-        # Parameters:
-        # - H: Composite operator (like a Hamiltonian).
-        
-        # Returns:
-        # - Operator acting on the second subsystem.
-        # """
-        # num_subsystems = np.log2(H.shape[0]).astype(int)
-        # tensor_dims = [2] * (2 * num_subsystems)
-        # # Reshape into appropriate tensor
-        # tensor_data = H.full().reshape(*tensor_dims)
-        
-        # # Indexing the tensor to get the desired block
-        # slices = [0] + [slice(None)] * (num_subsystems - 1) + [0] + [slice(None)] * (num_subsystems - 1)
-        # O_data = tensor_data[tuple(slices)]
-        
-        # # Reshape back to get the matrix operator
-        # O_data = O_data.reshape(2**(num_subsystems - 1), 2**(num_subsystems - 1))
-
-        # return Qobj(O_data, dims=[[2] * (num_subsystems - 1), [2] * (num_subsystems - 1)])
-        # ket_0 = basis(2,0)
-        # bra_extract = tensor(ket_0.dag(), self.identity)
-        # ket_extract = tensor(ket_0, self.identity)
-        # return bra_extract * H * ket_extract
-        return (U_approx * tensor(basis(2,0)*basis(2,0).dag(), H) * U_approx.dag()).ptrace([1,2])
-    @staticmethod
-    def error_norm(H, V_exact, V_approx):
-        return 
-    
     @staticmethod
     def normalize_hamiltonian(H):
         eigenvalues = H.eigenenergies()
@@ -302,3 +269,34 @@ class commutator_type_dynamics(pauli_transfer_matrix):
             V_fj = self.V_fj(self.sample_vv(), self.sample_uw())
             circuit_op = circuit_op * V_fj * tensor(qeye(2), (-1j* H * self.beta * t / N).expm()) * V_fj.dag()
         return circuit_op
+
+    def extract_F_out(self, U_m, H):
+        ket_0 = basis(2,0)
+        return (U_m * tensor(ket_0*ket_0.dag(), H) * U_m.dag()).ptrace([i+1 for i in range(self.ntls)])
+    
+    def approximtion_error(self, H, U_m, f_H, t):
+        U_exact = (-1j * f_H * t).expm()
+        F_exact = U_exact * H * U_exact.dag()
+        F_approx = self.extract_F_out(U_m, H)
+        return (F_exact - F_approx).norm()/H.norm()/2
+        
+    def choi_matrix(self, channel, option):
+        """
+        Calculate the Choi matrix of a quantum channel.
+
+        Parameters:
+        channel (qutip.Qobj): The quantum channel as a QuTiP operator.
+
+        Returns:
+        qutip.Qobj: The Choi matrix of the quantum channel.
+        """
+        if option == 'approx':
+            phi_plus = (tensor([basis(2,0) for i in range(self.ntls+1)]) + tensor([basis(2,1) for i in range(self.ntls+1)]))/np.sqrt(2)
+            choi = tensor(tensor(qeye(2), self.identity), phi_plus*phi_plus.dag()) * tensor(channel, tensor(qeye(2), self.identity))
+            choi = choi.ptrace([i+1 for i in range(self.ntls)])
+        elif option == 'exact':
+            phi_plus = (tensor([basis(2,0) for i in range(self.ntls)]) + tensor([basis(2,1) for i in range(self.ntls+1)]))/np.sqrt(2)
+            choi = tensor(self.identity, phi_plus*phi_plus.dag()) * tensor(channel, self.identity)
+        # TODO error> invalid option
+        return choi
+        
